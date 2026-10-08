@@ -396,3 +396,6 @@ La aplicación dependerá de un mecanismo de almacenamiento persistente para con
 ### D-03 — Autenticación
 
 Las cuentas individuales dependerán de un mecanismo de autenticación y recuperación de acceso.
+
+
+**Documento revisado durante el Módulo 3.**
