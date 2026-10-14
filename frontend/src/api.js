@@ -72,3 +72,42 @@ export function getInvitationCode(token, boardId) {
   });
 }
 
+
+export function listParticipants(token, boardId) {
+  return request(`/boards/${boardId}/participants`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+
+export function createParticipant(token, boardId, name) {
+  return request(`/boards/${boardId}/participants`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  });
+}
+
+
+export function listExpenses(token, boardId) {
+  return request(`/boards/${boardId}/expenses`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+
+export function createExpense(token, boardId, expense) {
+  return request(`/boards/${boardId}/expenses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(expense),
+  });
+}
+
+
+export function getExpense(token, boardId, expenseId) {
+  return request(`/boards/${boardId}/expenses/${expenseId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+

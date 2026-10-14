@@ -1,6 +1,8 @@
 import os
 import secrets
 from contextlib import asynccontextmanager
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -11,13 +13,24 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import Base, create_database
-from app.models import Board, BoardMembership, User
+from app.models import (
+    Board,
+    BoardMembership,
+    Expense,
+    ExpenseAllocation,
+    Participant,
+    User,
+)
 from app.schemas import (
     BoardCreate,
     BoardResponse,
     Credentials,
+    ExpenseCreate,
+    ExpenseResponse,
     InvitationCodeResponse,
     JoinBoardRequest,
+    ParticipantCreate,
+    ParticipantResponse,
     TokenResponse,
     UserResponse,
 )
@@ -27,6 +40,10 @@ from app.security import (
     hash_password,
     verify_password,
 )
+
+
+def argentina_today() -> date:
+    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
 
 
 def create_app(
@@ -104,6 +121,19 @@ def create_app(
                 detail="No pertenecés a este tablero",
             )
         return board
+
+    def get_board_participant(
+        participant_id: int,
+        board_id: int,
+        session: Session,
+    ) -> Participant:
+        participant = session.get(Participant, participant_id)
+        if participant is None or participant.board_id != board_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="La persona no pertenece al tablero",
+            )
+        return participant
 
     @app.get("/api/health")
     def health():
@@ -245,6 +275,116 @@ def create_app(
         session: Session = Depends(get_session),
     ):
         return get_member_board(board_id, user, session)
+
+    @app.post(
+        "/api/boards/{board_id}/participants",
+        response_model=ParticipantResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_participant(
+        board_id: int,
+        payload: ParticipantCreate,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        get_member_board(board_id, user, session)
+        participant = Participant(
+            board_id=board_id,
+            name=payload.name,
+        )
+        session.add(participant)
+        session.commit()
+        session.refresh(participant)
+        return participant
+
+    @app.get(
+        "/api/boards/{board_id}/participants",
+        response_model=list[ParticipantResponse],
+    )
+    def list_participants(
+        board_id: int,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        get_member_board(board_id, user, session)
+        return session.scalars(
+            select(Participant)
+            .where(Participant.board_id == board_id)
+            .order_by(Participant.id)
+        ).all()
+
+    @app.post(
+        "/api/boards/{board_id}/expenses",
+        response_model=ExpenseResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_expense(
+        board_id: int,
+        payload: ExpenseCreate,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        get_member_board(board_id, user, session)
+        get_board_participant(payload.payer_id, board_id, session)
+        get_board_participant(payload.person_id, board_id, session)
+
+        expense = Expense(
+            board_id=board_id,
+            name=payload.name,
+            amount=payload.amount,
+            category=payload.category,
+            date=payload.date or argentina_today(),
+            payer_id=payload.payer_id,
+            description=payload.description,
+            expense_type="personal",
+        )
+        session.add(expense)
+        session.flush()
+        session.add(
+            ExpenseAllocation(
+                expense_id=expense.id,
+                participant_id=payload.person_id,
+                amount=payload.amount,
+            )
+        )
+        session.commit()
+        session.refresh(expense)
+        return expense
+
+    @app.get(
+        "/api/boards/{board_id}/expenses",
+        response_model=list[ExpenseResponse],
+    )
+    def list_expenses(
+        board_id: int,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        get_member_board(board_id, user, session)
+        return session.scalars(
+            select(Expense)
+            .where(Expense.board_id == board_id)
+            .order_by(Expense.id)
+        ).all()
+
+    @app.get(
+        "/api/boards/{board_id}/expenses/{expense_id}",
+        response_model=ExpenseResponse,
+    )
+    def get_expense(
+        board_id: int,
+        expense_id: int,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        get_member_board(board_id, user, session)
+        expense = session.get(Expense, expense_id)
+        if expense is None or expense.board_id != board_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Gasto no encontrado",
+            )
+        return expense
 
     @app.get(
         "/api/boards/{board_id}/invitation-code",
