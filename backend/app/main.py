@@ -11,8 +11,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import Base, create_database
-from app.models import User
-from app.schemas import Credentials, TokenResponse, UserResponse
+from app.models import Board, BoardMembership, User
+from app.schemas import (
+    BoardCreate,
+    BoardResponse,
+    Credentials,
+    InvitationCodeResponse,
+    JoinBoardRequest,
+    TokenResponse,
+    UserResponse,
+)
 from app.security import (
     create_access_token,
     decode_access_token,
@@ -74,6 +82,28 @@ def create_app(
         if user is None:
             raise unauthorized
         return user
+
+    def get_member_board(
+        board_id: int,
+        user: User,
+        session: Session,
+    ) -> Board:
+        board = session.get(Board, board_id)
+        if board is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tablero no encontrado",
+            )
+        membership = session.get(
+            BoardMembership,
+            (user.id, board_id),
+        )
+        if membership is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No pertenecés a este tablero",
+            )
+        return board
 
     @app.get("/api/health")
     def health():
@@ -138,6 +168,97 @@ def create_app(
     @app.get("/api/auth/me", response_model=UserResponse)
     def current_account(user: User = Depends(get_current_user)):
         return user
+
+    @app.post(
+        "/api/boards",
+        response_model=BoardResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_board(
+        payload: BoardCreate,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        board = Board(
+            name=payload.name,
+            invitation_code=secrets.token_urlsafe(9),
+        )
+        session.add(board)
+        session.flush()
+        session.add(
+            BoardMembership(user_id=user.id, board_id=board.id)
+        )
+        session.commit()
+        session.refresh(board)
+        return board
+
+    @app.get("/api/boards", response_model=list[BoardResponse])
+    def list_boards(
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        return session.scalars(
+            select(Board)
+            .join(
+                BoardMembership,
+                BoardMembership.board_id == Board.id,
+            )
+            .where(BoardMembership.user_id == user.id)
+            .order_by(Board.id)
+        ).all()
+
+    @app.post("/api/boards/join", response_model=BoardResponse)
+    def join_board(
+        payload: JoinBoardRequest,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        board = session.scalar(
+            select(Board).where(
+                Board.invitation_code == payload.invitation_code
+            )
+        )
+        if board is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Código de invitación inválido",
+            )
+
+        membership = session.get(
+            BoardMembership,
+            (user.id, board.id),
+        )
+        if membership is None:
+            session.add(
+                BoardMembership(user_id=user.id, board_id=board.id)
+            )
+            session.commit()
+        return board
+
+    @app.get(
+        "/api/boards/{board_id}",
+        response_model=BoardResponse,
+    )
+    def get_board(
+        board_id: int,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        return get_member_board(board_id, user, session)
+
+    @app.get(
+        "/api/boards/{board_id}/invitation-code",
+        response_model=InvitationCodeResponse,
+    )
+    def get_invitation_code(
+        board_id: int,
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        board = get_member_board(board_id, user, session)
+        return InvitationCodeResponse(
+            invitation_code=board.invitation_code
+        )
 
     app.state.session_factory = session_factory
     return app

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { getCurrentAccount, login, register } from "./api";
+import {
+  createBoard,
+  getCurrentAccount,
+  getInvitationCode,
+  joinBoard,
+  listBoards,
+  login,
+  register,
+} from "./api";
 import { createSessionStore } from "./auth/session";
 
 
@@ -44,6 +52,135 @@ function CredentialsForm({ mode, onSubmit, pending }) {
             : "Crear cuenta"}
       </button>
     </form>
+  );
+}
+
+
+function BoardWorkspace({ account, onLogout, session }) {
+  const [boards, setBoards] = useState([]);
+  const [boardName, setBoardName] = useState("");
+  const [invitationCode, setInvitationCode] = useState("");
+  const [sharedCode, setSharedCode] = useState("");
+  const [message, setMessage] = useState("");
+  const [pending, setPending] = useState(false);
+  const token = session.read();
+
+  useEffect(() => {
+    listBoards(token)
+      .then(setBoards)
+      .catch((error) => setMessage(error.message));
+  }, [token]);
+
+  async function run(action) {
+    setMessage("");
+    setPending(true);
+    try {
+      await action();
+      setBoards(await listBoards(token));
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function submitBoard(event) {
+    event.preventDefault();
+    run(async () => {
+      await createBoard(token, boardName);
+      setBoardName("");
+    });
+  }
+
+  function submitInvitation(event) {
+    event.preventDefault();
+    run(async () => {
+      await joinBoard(token, invitationCode);
+      setInvitationCode("");
+    });
+  }
+
+  async function revealCode(boardId) {
+    setMessage("");
+    try {
+      const result = await getInvitationCode(token, boardId);
+      setSharedCode(result.invitation_code);
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  return (
+    <main className="shell">
+      <section className="card workspace">
+        <div className="workspace-header">
+          <div>
+            <p className="eyebrow">Sesión activa</p>
+            <h1>Tus tableros</h1>
+            <p>{account.email}</p>
+          </div>
+          <button className="secondary" onClick={onLogout} type="button">
+            Cerrar sesión
+          </button>
+        </div>
+
+        <div className="board-actions">
+          <form onSubmit={submitBoard}>
+            <label>
+              Nombre del tablero
+              <input
+                maxLength="100"
+                onChange={(event) => setBoardName(event.target.value)}
+                required
+                value={boardName}
+              />
+            </label>
+            <button disabled={pending} type="submit">
+              Crear tablero
+            </button>
+          </form>
+
+          <form onSubmit={submitInvitation}>
+            <label>
+              Código de invitación
+              <input
+                onChange={(event) => setInvitationCode(event.target.value)}
+                required
+                value={invitationCode}
+              />
+            </label>
+            <button disabled={pending} type="submit">
+              Unirme
+            </button>
+          </form>
+        </div>
+
+        {message && <p className="message">{message}</p>}
+        {sharedCode && (
+          <p className="invitation">
+            Código para compartir: <strong>{sharedCode}</strong>
+          </p>
+        )}
+
+        <ul className="board-list">
+          {boards.map((board) => (
+            <li key={board.id}>
+              <strong>{board.name}</strong>
+              <button
+                className="link inline"
+                onClick={() => revealCode(board.id)}
+                type="button"
+              >
+                Ver código
+              </button>
+            </li>
+          ))}
+        </ul>
+        {boards.length === 0 && (
+          <p className="empty">Todavía no pertenecés a ningún tablero.</p>
+        )}
+      </section>
+    </main>
   );
 }
 
@@ -93,16 +230,11 @@ export default function App() {
 
   if (account) {
     return (
-      <main className="shell">
-        <section className="card">
-          <p className="eyebrow">Sesión activa</p>
-          <h1>Hola, {account.email}</h1>
-          <p>Tu cuenta está lista para crear un tablero.</p>
-          <button className="secondary" onClick={logout} type="button">
-            Cerrar sesión
-          </button>
-        </section>
-      </main>
+      <BoardWorkspace
+        account={account}
+        onLogout={logout}
+        session={session}
+      />
     );
   }
 

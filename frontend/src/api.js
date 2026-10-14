@@ -40,3 +40,35 @@ export function getCurrentAccount(token) {
   });
 }
 
+
+export function listBoards(token) {
+  return request("/boards", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+
+export function createBoard(token, name) {
+  return request("/boards", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  });
+}
+
+
+export function joinBoard(token, invitationCode) {
+  return request("/boards/join", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ invitation_code: invitationCode }),
+  });
+}
+
+
+export function getInvitationCode(token, boardId) {
+  return request(`/boards/${boardId}/invitation-code`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
