@@ -111,3 +111,19 @@ export function getExpense(token, boardId, expenseId) {
   });
 }
 
+
+export function getMonthlySummary(token, boardId, year, month) {
+  return request(`/boards/${boardId}/monthly-summary/${year}/${month}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+
+export function setMonthlyBudget(token, boardId, year, month, availableBase) {
+  return request(`/boards/${boardId}/monthly-summary/${year}/${month}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ available_base: availableBase }),
+  });
+}
+

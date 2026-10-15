@@ -7,12 +7,14 @@ import {
   getCurrentAccount,
   getExpense,
   getInvitationCode,
+  getMonthlySummary,
   joinBoard,
   listBoards,
   listExpenses,
   listParticipants,
   login,
   register,
+  setMonthlyBudget,
 } from "./api";
 import { createSessionStore } from "./auth/session";
 
@@ -61,6 +63,12 @@ function CredentialsForm({ mode, onSubmit, pending }) {
 }
 
 
+function currentMonthValue() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+}
+
+
 function BoardWorkspace({ account, onLogout, session }) {
   const [boards, setBoards] = useState([]);
   const [selectedBoardId, setSelectedBoardId] = useState(null);
@@ -69,6 +77,9 @@ function BoardWorkspace({ account, onLogout, session }) {
   const [expenseDetail, setExpenseDetail] = useState(null);
   const [boardName, setBoardName] = useState("");
   const [participantName, setParticipantName] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthValue);
+  const [availableBase, setAvailableBase] = useState("");
+  const [monthlySummary, setMonthlySummary] = useState(null);
   const [expenseForm, setExpenseForm] = useState({
     name: "",
     amount: "",
@@ -101,15 +112,20 @@ function BoardWorkspace({ account, onLogout, session }) {
       setParticipants([]);
       setExpenses([]);
       setExpenseDetail(null);
+      setMonthlySummary(null);
       return;
     }
+    const [year, month] = selectedMonth.split("-").map(Number);
     Promise.all([
       listParticipants(token, selectedBoardId),
       listExpenses(token, selectedBoardId),
+      getMonthlySummary(token, selectedBoardId, year, month),
     ])
-      .then(([participantResult, expenseResult]) => {
+      .then(([participantResult, expenseResult, summaryResult]) => {
         setParticipants(participantResult);
         setExpenses(expenseResult);
+        setMonthlySummary(summaryResult);
+        setAvailableBase(summaryResult.available_base);
         setExpenseDetail(null);
         setExpenseForm((current) => {
           const ids = participantResult.map(({ id }) => String(id));
@@ -134,7 +150,7 @@ function BoardWorkspace({ account, onLogout, session }) {
         });
       })
       .catch((error) => setMessage(error.message));
-  }, [selectedBoardId, token]);
+  }, [selectedBoardId, selectedMonth, token]);
 
   async function run(action) {
     setMessage("");
@@ -177,6 +193,22 @@ function BoardWorkspace({ account, onLogout, session }) {
         payer_id: current.payer_id || String(result[0]?.id ?? ""),
         person_id: current.person_id || String(result[0]?.id ?? ""),
       }));
+    });
+  }
+
+  function submitMonthlyBudget(event) {
+    event.preventDefault();
+    run(async () => {
+      const [year, month] = selectedMonth.split("-").map(Number);
+      const summary = await setMonthlyBudget(
+        token,
+        selectedBoardId,
+        year,
+        month,
+        availableBase,
+      );
+      setMonthlySummary(summary);
+      setAvailableBase(summary.available_base);
     });
   }
 
@@ -237,6 +269,10 @@ function BoardWorkspace({ account, onLogout, session }) {
       if (expenseForm.date) payload.date = expenseForm.date;
       await createExpense(token, selectedBoardId, payload);
       setExpenses(await listExpenses(token, selectedBoardId));
+      const [year, month] = selectedMonth.split("-").map(Number);
+      setMonthlySummary(
+        await getMonthlySummary(token, selectedBoardId, year, month),
+      );
       setExpenseDetail(null);
       setExpenseForm((current) => ({
         ...current,
@@ -356,6 +392,51 @@ function BoardWorkspace({ account, onLogout, session }) {
 
         {selectedBoardId !== null && (
           <>
+            <section className="board-section">
+              <h2>Resumen mensual</h2>
+              <form className="monthly-form" onSubmit={submitMonthlyBudget}>
+                <label>
+                  Mes
+                  <input
+                    onChange={(event) => setSelectedMonth(event.target.value)}
+                    required
+                    type="month"
+                    value={selectedMonth}
+                  />
+                </label>
+                <label>
+                  Disponible base ARS
+                  <input
+                    min="0"
+                    onChange={(event) => setAvailableBase(event.target.value)}
+                    required
+                    step="0.01"
+                    type="number"
+                    value={availableBase}
+                  />
+                </label>
+                <button disabled={pending} type="submit">
+                  Guardar disponible
+                </button>
+              </form>
+              {monthlySummary && (
+                <dl className="monthly-summary">
+                  <div>
+                    <dt>Disponible</dt>
+                    <dd>ARS {monthlySummary.available_base}</dd>
+                  </div>
+                  <div>
+                    <dt>Consumido</dt>
+                    <dd>ARS {monthlySummary.consumed}</dd>
+                  </div>
+                  <div className={monthlySummary.remaining.startsWith("-") ? "negative" : ""}>
+                    <dt>Restante</dt>
+                    <dd>ARS {monthlySummary.remaining}</dd>
+                  </div>
+                </dl>
+              )}
+            </section>
+
             <section className="board-section">
               <h2>Participantes</h2>
               <form className="inline-form" onSubmit={submitParticipant}>

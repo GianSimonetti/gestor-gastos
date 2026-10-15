@@ -109,6 +109,44 @@ textarea {
   margin-top: 0;
 }
 
+.monthly-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 16px;
+}
+
+.monthly-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0 0;
+}
+
+.monthly-summary div {
+  min-width: 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: #f1f7f4;
+}
+
+.monthly-summary dt {
+  color: #5c6f65;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.monthly-summary dd {
+  overflow-wrap: anywhere;
+  margin: 6px 0 0;
+  font-weight: 800;
+}
+
+.monthly-summary .negative {
+  background: #fff0ee;
+  color: #9f2d20;
+}
+
 .compact-list {
   display: grid;
   gap: 8px;
@@ -318,6 +356,11 @@ button:disabled {
   }
 
   .inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .monthly-form,
+  .monthly-summary {
     grid-template-columns: 1fr;
   }
 

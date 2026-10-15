@@ -41,6 +41,18 @@ class BoardMembership(Base):
     )
 
 
+class MonthlyBudget(Base):
+    __tablename__ = "monthly_budgets"
+
+    board_id: Mapped[int] = mapped_column(
+        ForeignKey("boards.id"),
+        primary_key=True,
+    )
+    year: Mapped[int] = mapped_column(primary_key=True)
+    month: Mapped[int] = mapped_column(primary_key=True)
+    available_base: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+
+
 class Participant(Base):
     __tablename__ = "participants"
 

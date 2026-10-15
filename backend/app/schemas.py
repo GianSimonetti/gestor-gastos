@@ -59,6 +59,19 @@ class ParticipantResponse(BaseModel):
     name: str
 
 
+class MonthlyBudgetSet(BaseModel):
+    available_base: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+
+
+class MonthlySummaryResponse(BaseModel):
+    board_id: int
+    year: int
+    month: int
+    available_base: Decimal
+    consumed: Decimal
+    remaining: Decimal
+
+
 class ExpenseAllocationCreate(BaseModel):
     participant_id: int
     amount: Decimal = Field(ge=0, max_digits=14, decimal_places=2)

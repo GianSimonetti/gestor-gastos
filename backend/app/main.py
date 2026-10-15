@@ -2,23 +2,26 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 from datetime import date, datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Path, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import Base, create_database
 from app.expense_distribution import DistributionError, distribute_expense
+from app.monthly_summary import calculate_monthly_summary
 from app.models import (
     Board,
     BoardMembership,
     Expense,
     ExpenseAllocation,
+    MonthlyBudget,
     Participant,
     User,
 )
@@ -30,6 +33,8 @@ from app.schemas import (
     ExpenseResponse,
     InvitationCodeResponse,
     JoinBoardRequest,
+    MonthlyBudgetSet,
+    MonthlySummaryResponse,
     ParticipantCreate,
     ParticipantResponse,
     TokenResponse,
@@ -135,6 +140,42 @@ def create_app(
                 detail="La persona no pertenece al tablero",
             )
         return participant
+
+    def get_monthly_summary(
+        board_id: int,
+        year: int,
+        month: int,
+        session: Session,
+    ) -> MonthlySummaryResponse:
+        month_start = date(year, month, 1)
+        next_month = (
+            date(year + 1, 1, 1)
+            if month == 12
+            else date(year, month + 1, 1)
+        )
+        budget = session.get(MonthlyBudget, (board_id, year, month))
+        available_base = (
+            budget.available_base if budget is not None else Decimal("0.00")
+        )
+        consumed_value = session.scalar(
+            select(func.sum(Expense.amount)).where(
+                Expense.board_id == board_id,
+                Expense.date >= month_start,
+                Expense.date < next_month,
+            )
+        )
+        consumed, remaining = calculate_monthly_summary(
+            available_base=available_base,
+            expense_totals=[consumed_value or Decimal("0.00")],
+        )
+        return MonthlySummaryResponse(
+            board_id=board_id,
+            year=year,
+            month=month,
+            available_base=available_base,
+            consumed=consumed,
+            remaining=remaining,
+        )
 
     @app.get("/api/health")
     def health():
@@ -378,6 +419,49 @@ def create_app(
         session.commit()
         session.refresh(expense)
         return expense
+
+    @app.put(
+        "/api/boards/{board_id}/monthly-summary/{year}/{month}",
+        response_model=MonthlySummaryResponse,
+    )
+    def set_monthly_budget(
+        board_id: int,
+        payload: MonthlyBudgetSet,
+        year: int = Path(ge=1, le=9998),
+        month: int = Path(ge=1, le=12),
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        get_member_board(board_id, user, session)
+        budget = session.get(MonthlyBudget, (board_id, year, month))
+        if budget is None:
+            budget = MonthlyBudget(
+                board_id=board_id,
+                year=year,
+                month=month,
+                available_base=payload.available_base,
+            )
+            session.add(budget)
+        else:
+            budget.available_base = payload.available_base
+        session.flush()
+        summary = get_monthly_summary(board_id, year, month, session)
+        session.commit()
+        return summary
+
+    @app.get(
+        "/api/boards/{board_id}/monthly-summary/{year}/{month}",
+        response_model=MonthlySummaryResponse,
+    )
+    def read_monthly_summary(
+        board_id: int,
+        year: int = Path(ge=1, le=9998),
+        month: int = Path(ge=1, le=12),
+        user: User = Depends(get_current_user),
+        session: Session = Depends(get_session),
+    ):
+        get_member_board(board_id, user, session)
+        return get_monthly_summary(board_id, year, month, session)
 
     @app.get(
         "/api/boards/{board_id}/expenses",
