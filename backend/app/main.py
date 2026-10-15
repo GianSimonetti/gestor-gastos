@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import Base, create_database
+from app.expense_distribution import DistributionError, distribute_expense
 from app.models import (
     Board,
     BoardMembership,
@@ -326,7 +327,31 @@ def create_app(
     ):
         get_member_board(board_id, user, session)
         get_board_participant(payload.payer_id, board_id, session)
-        get_board_participant(payload.person_id, board_id, session)
+
+        custom_allocations = (
+            [
+                (allocation.participant_id, allocation.amount)
+                for allocation in payload.allocations
+            ]
+            if payload.allocations is not None
+            else None
+        )
+        try:
+            allocations = distribute_expense(
+                amount=payload.amount,
+                expense_type=payload.expense_type,
+                person_id=payload.person_id,
+                participant_ids=payload.participant_ids,
+                custom_allocations=custom_allocations,
+            )
+        except DistributionError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(error),
+            ) from error
+
+        for participant_id, _ in allocations:
+            get_board_participant(participant_id, board_id, session)
 
         expense = Expense(
             board_id=board_id,
@@ -336,16 +361,19 @@ def create_app(
             date=payload.date or argentina_today(),
             payer_id=payload.payer_id,
             description=payload.description,
-            expense_type="personal",
+            expense_type=payload.expense_type,
         )
         session.add(expense)
         session.flush()
-        session.add(
-            ExpenseAllocation(
-                expense_id=expense.id,
-                participant_id=payload.person_id,
-                amount=payload.amount,
-            )
+        session.add_all(
+            [
+                ExpenseAllocation(
+                    expense_id=expense.id,
+                    participant_id=participant_id,
+                    amount=allocated_amount,
+                )
+                for participant_id, allocated_amount in allocations
+            ]
         )
         session.commit()
         session.refresh(expense)

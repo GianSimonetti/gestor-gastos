@@ -74,8 +74,11 @@ function BoardWorkspace({ account, onLogout, session }) {
     amount: "",
     category: "",
     date: "",
+    expense_type: "personal",
     payer_id: "",
     person_id: "",
+    participant_ids: [],
+    custom_allocations: {},
     description: "",
   });
   const [invitationCode, setInvitationCode] = useState("");
@@ -119,6 +122,14 @@ function BoardWorkspace({ account, onLogout, session }) {
             person_id: ids.includes(current.person_id)
               ? current.person_id
               : fallback,
+            participant_ids: current.participant_ids.filter((id) =>
+              ids.includes(id),
+            ),
+            custom_allocations: Object.fromEntries(
+              Object.entries(current.custom_allocations).filter(([id]) =>
+                ids.includes(id),
+              ),
+            ),
           };
         });
       })
@@ -174,6 +185,34 @@ function BoardWorkspace({ account, onLogout, session }) {
     setExpenseForm((current) => ({ ...current, [name]: value }));
   }
 
+  function toggleExpenseParticipant(participantId) {
+    const id = String(participantId);
+    setExpenseForm((current) => {
+      const selected = current.participant_ids.includes(id);
+      return {
+        ...current,
+        participant_ids: selected
+          ? current.participant_ids.filter((item) => item !== id)
+          : [...current.participant_ids, id],
+      };
+    });
+  }
+
+  function changeCustomAmount(participantId, value) {
+    setExpenseForm((current) => ({
+      ...current,
+      custom_allocations: {
+        ...current.custom_allocations,
+        [participantId]: value,
+      },
+    }));
+  }
+
+  function participantDisplayName(participantId) {
+    return participants.find(({ id }) => id === participantId)?.name
+      ?? `Participante #${participantId}`;
+  }
+
   function submitExpense(event) {
     event.preventDefault();
     run(async () => {
@@ -182,9 +221,19 @@ function BoardWorkspace({ account, onLogout, session }) {
         amount: expenseForm.amount,
         category: expenseForm.category,
         payer_id: Number(expenseForm.payer_id),
-        person_id: Number(expenseForm.person_id),
+        expense_type: expenseForm.expense_type,
         description: expenseForm.description || null,
       };
+      if (expenseForm.expense_type === "personal") {
+        payload.person_id = Number(expenseForm.person_id);
+      } else if (expenseForm.expense_type === "equal") {
+        payload.participant_ids = expenseForm.participant_ids.map(Number);
+      } else {
+        payload.allocations = expenseForm.participant_ids.map((participantId) => ({
+          participant_id: Number(participantId),
+          amount: expenseForm.custom_allocations[participantId] ?? "",
+        }));
+      }
       if (expenseForm.date) payload.date = expenseForm.date;
       await createExpense(token, selectedBoardId, payload);
       setExpenses(await listExpenses(token, selectedBoardId));
@@ -195,6 +244,8 @@ function BoardWorkspace({ account, onLogout, session }) {
         amount: "",
         category: "",
         date: "",
+        participant_ids: [],
+        custom_allocations: {},
         description: "",
       }));
     });
@@ -332,7 +383,7 @@ function BoardWorkspace({ account, onLogout, session }) {
             </section>
 
             <section className="board-section">
-              <h2>Gastos personales</h2>
+              <h2>Gastos</h2>
               {participants.length > 0 ? (
                 <form className="expense-form" onSubmit={submitExpense}>
                   <label>
@@ -377,6 +428,18 @@ function BoardWorkspace({ account, onLogout, session }) {
                     />
                   </label>
                   <label>
+                    Tipo
+                    <select
+                      name="expense_type"
+                      onChange={changeExpenseField}
+                      value={expenseForm.expense_type}
+                    >
+                      <option value="personal">Personal</option>
+                      <option value="equal">Compartido en partes iguales</option>
+                      <option value="custom">Distribución personalizada</option>
+                    </select>
+                  </label>
+                  <label>
                     Pagador
                     <select
                       name="payer_id"
@@ -391,21 +454,59 @@ function BoardWorkspace({ account, onLogout, session }) {
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Asignado a
-                    <select
-                      name="person_id"
-                      onChange={changeExpenseField}
-                      required
-                      value={expenseForm.person_id}
-                    >
-                      {participants.map((participant) => (
-                        <option key={participant.id} value={participant.id}>
-                          {participant.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {expenseForm.expense_type === "personal" ? (
+                    <label>
+                      Asignado a
+                      <select
+                        name="person_id"
+                        onChange={changeExpenseField}
+                        required
+                        value={expenseForm.person_id}
+                      >
+                        {participants.map((participant) => (
+                          <option key={participant.id} value={participant.id}>
+                            {participant.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <fieldset className="participant-selection full-row">
+                      <legend>Personas incluidas</legend>
+                      {participants.map((participant) => {
+                        const selected = expenseForm.participant_ids.includes(
+                          String(participant.id),
+                        );
+                        return (
+                          <div className="participant-option" key={participant.id}>
+                            <label>
+                              <input
+                                checked={selected}
+                                onChange={() => toggleExpenseParticipant(participant.id)}
+                                type="checkbox"
+                              />
+                              {participant.name}
+                            </label>
+                            {selected && expenseForm.expense_type === "custom" && (
+                              <input
+                                aria-label={`Parte de ${participant.name}`}
+                                min="0"
+                                onChange={(event) => changeCustomAmount(
+                                  participant.id,
+                                  event.target.value,
+                                )}
+                                placeholder="ARS"
+                                required
+                                step="0.01"
+                                type="number"
+                                value={expenseForm.custom_allocations[participant.id] ?? ""}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </fieldset>
+                  )}
                   <label className="full-row">
                     Descripción opcional
                     <textarea
@@ -416,7 +517,7 @@ function BoardWorkspace({ account, onLogout, session }) {
                     />
                   </label>
                   <button className="full-row" disabled={pending} type="submit">
-                    Registrar gasto personal
+                    Registrar gasto
                   </button>
                 </form>
               ) : (
@@ -432,6 +533,7 @@ function BoardWorkspace({ account, onLogout, session }) {
                       <strong>{expense.name}</strong>
                       <small>
                         {expense.category} · ARS {expense.amount} · {expense.date}
+                        {" · "}{expense.expense_type === "personal" ? "Personal" : "Compartido"}
                       </small>
                     </span>
                     <button
@@ -453,12 +555,30 @@ function BoardWorkspace({ account, onLogout, session }) {
                   <h3>{expenseDetail.name}</h3>
                   <p>ARS {expenseDetail.amount} · {expenseDetail.category}</p>
                   <p>Fecha: {expenseDetail.date}</p>
-                  <p>Tipo: personal</p>
-                  <p>Pagador: participante #{expenseDetail.payer_id}</p>
                   <p>
-                    Asignación: participante #{expenseDetail.allocations[0].participant_id},
-                    {" "}ARS {expenseDetail.allocations[0].amount}
+                    Tipo: {{ personal: "Personal", equal: "Partes iguales", custom: "Personalizado" }[expenseDetail.expense_type]}
                   </p>
+                  <p>Pagador: {participantDisplayName(expenseDetail.payer_id)}</p>
+                  <h4>Partes asignadas</h4>
+                  <ul>
+                    {expenseDetail.allocations.map((allocation) => (
+                      <li key={allocation.participant_id}>
+                        {participantDisplayName(allocation.participant_id)}: ARS {allocation.amount}
+                      </li>
+                    ))}
+                  </ul>
+                  <h4>Deudas con el pagador</h4>
+                  {expenseDetail.debts?.length ? (
+                    <ul>
+                      {expenseDetail.debts.map((debt) => (
+                        <li key={debt.participant_id}>
+                          {participantDisplayName(debt.participant_id)} debe devolver ARS {debt.amount}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>Sin deudas.</p>
+                  )}
                   {expenseDetail.description && <p>{expenseDetail.description}</p>}
                 </article>
               )}

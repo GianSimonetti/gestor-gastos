@@ -5,6 +5,7 @@ from sqlalchemy import Date, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.expense_distribution import calculate_debts
 
 
 class User(Base):
@@ -71,6 +72,22 @@ class Expense(Base):
         lazy="selectin",
         order_by="ExpenseAllocation.participant_id",
     )
+
+    @property
+    def debts(self) -> list[dict[str, int | Decimal]] | None:
+        debts = calculate_debts(
+            payer_id=self.payer_id,
+            allocations=[
+                (allocation.participant_id, allocation.amount)
+                for allocation in self.allocations
+            ],
+        )
+        if not debts:
+            return None
+        return [
+            {"participant_id": participant_id, "amount": amount}
+            for participant_id, amount in debts
+        ]
 
 
 class ExpenseAllocation(Base):

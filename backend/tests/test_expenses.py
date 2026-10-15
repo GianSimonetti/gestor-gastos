@@ -196,3 +196,172 @@ def test_non_member_cannot_register_list_or_get_expenses(client):
     assert listed.status_code == 403
     assert detail.status_code == 403
 
+
+def test_member_can_register_an_equal_shared_expense(client):
+    member = authenticated_headers(client, "member@example.com")
+    board = create_board(client, member)
+    payer = create_participant(client, member, board["id"], "Carla")
+    ana = create_participant(client, member, board["id"], "Ana")
+    luis = create_participant(client, member, board["id"], "Luis")
+
+    response = client.post(
+        f"/api/boards/{board['id']}/expenses",
+        headers=member,
+        json={
+            "name": "Cena",
+            "amount": "100.00",
+            "category": "Comidas",
+            "date": "2026-01-15",
+            "payer_id": payer["id"],
+            "expense_type": "equal",
+            "participant_ids": [payer["id"], ana["id"], luis["id"]],
+        },
+    )
+
+    assert response.status_code == 201
+    expense = response.json()
+    assert expense["expense_type"] == "equal"
+    assert expense["allocations"] == [
+        {"participant_id": payer["id"], "amount": "33.34"},
+        {"participant_id": ana["id"], "amount": "33.33"},
+        {"participant_id": luis["id"], "amount": "33.33"},
+    ]
+    assert expense["debts"] == [
+        {"participant_id": ana["id"], "amount": "33.33"},
+        {"participant_id": luis["id"], "amount": "33.33"},
+    ]
+
+
+def test_member_can_register_a_custom_shared_expense(client):
+    member = authenticated_headers(client, "member@example.com")
+    board = create_board(client, member)
+    payer = create_participant(client, member, board["id"], "Carla")
+    ana = create_participant(client, member, board["id"], "Ana")
+
+    response = client.post(
+        f"/api/boards/{board['id']}/expenses",
+        headers=member,
+        json={
+            "name": "Alquiler",
+            "amount": "150000.00",
+            "category": "Vivienda",
+            "date": "2026-01-15",
+            "payer_id": payer["id"],
+            "expense_type": "custom",
+            "allocations": [
+                {"participant_id": payer["id"], "amount": "40000.00"},
+                {"participant_id": ana["id"], "amount": "110000.00"},
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["allocations"] == [
+        {"participant_id": payer["id"], "amount": "40000.00"},
+        {"participant_id": ana["id"], "amount": "110000.00"},
+    ]
+    assert response.json()["debts"] == [
+        {"participant_id": ana["id"], "amount": "110000.00"}
+    ]
+    detail = client.get(
+        f"/api/boards/{board['id']}/expenses/{response.json()['id']}",
+        headers=member,
+    )
+    assert detail.status_code == 200
+    assert detail.json()["allocations"] == response.json()["allocations"]
+    assert detail.json()["debts"] == response.json()["debts"]
+
+
+def test_custom_expense_rejects_invalid_sum_negative_and_foreign_people(client):
+    member = authenticated_headers(client, "member@example.com")
+    home = create_board(client, member, "Hogar")
+    trip = create_board(client, member, "Viaje")
+    payer = create_participant(client, member, home["id"], "Carla")
+    ana = create_participant(client, member, home["id"], "Ana")
+    outsider = create_participant(client, member, trip["id"], "Luis")
+    base = {
+        "name": "Alquiler",
+        "amount": "150000.00",
+        "category": "Vivienda",
+        "payer_id": payer["id"],
+        "expense_type": "custom",
+    }
+
+    invalid_sum = client.post(
+        f"/api/boards/{home['id']}/expenses",
+        headers=member,
+        json={
+            **base,
+            "allocations": [
+                {"participant_id": payer["id"], "amount": "40000.00"},
+                {"participant_id": ana["id"], "amount": "100000.00"},
+            ],
+        },
+    )
+    negative = client.post(
+        f"/api/boards/{home['id']}/expenses",
+        headers=member,
+        json={
+            **base,
+            "allocations": [
+                {"participant_id": payer["id"], "amount": "150000.01"},
+                {"participant_id": ana["id"], "amount": "-0.01"},
+            ],
+        },
+    )
+    foreign_person = client.post(
+        f"/api/boards/{home['id']}/expenses",
+        headers=member,
+        json={
+            **base,
+            "allocations": [
+                {"participant_id": payer["id"], "amount": "40000.00"},
+                {"participant_id": outsider["id"], "amount": "110000.00"},
+            ],
+        },
+    )
+
+    assert invalid_sum.status_code == 422
+    assert "sumar exactamente" in invalid_sum.json()["detail"]
+    assert negative.status_code == 422
+    assert foreign_person.status_code == 422
+    assert client.get(
+        f"/api/boards/{home['id']}/expenses", headers=member
+    ).json() == []
+
+
+def test_equal_expense_rejects_foreign_payer_or_participant(client):
+    member = authenticated_headers(client, "member@example.com")
+    home = create_board(client, member, "Hogar")
+    trip = create_board(client, member, "Viaje")
+    home_person = create_participant(client, member, home["id"], "Ana")
+    trip_person = create_participant(client, member, trip["id"], "Luis")
+    payload = {
+        "name": "Cena",
+        "amount": "100.00",
+        "category": "Comidas",
+        "expense_type": "equal",
+    }
+
+    wrong_payer = client.post(
+        f"/api/boards/{home['id']}/expenses",
+        headers=member,
+        json={
+            **payload,
+            "payer_id": trip_person["id"],
+            "participant_ids": [home_person["id"]],
+        },
+    )
+    wrong_participant = client.post(
+        f"/api/boards/{home['id']}/expenses",
+        headers=member,
+        json={
+            **payload,
+            "payer_id": home_person["id"],
+            "participant_ids": [home_person["id"], trip_person["id"]],
+        },
+    )
+
+    assert wrong_payer.status_code == 422
+    assert wrong_participant.status_code == 422
+

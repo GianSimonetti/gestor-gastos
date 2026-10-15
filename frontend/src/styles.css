@@ -126,6 +126,37 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.participant-selection {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #b8c9c0;
+  border-radius: 10px;
+}
+
+.participant-selection legend {
+  padding: 0 6px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.participant-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.5fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.participant-option label {
+  display: flex;
+  align-items: center;
+}
+
+.participant-option input[type="checkbox"] {
+  width: auto;
+}
+
 .expense-list {
   display: grid;
   gap: 10px;
@@ -160,6 +191,15 @@ textarea {
 .expense-detail h3,
 .expense-detail p {
   margin: 0 0 8px;
+}
+
+.expense-detail h4 {
+  margin: 14px 0 6px;
+}
+
+.expense-detail ul {
+  margin: 0;
+  padding-left: 20px;
 }
 
 .inline {
@@ -282,6 +322,10 @@ button:disabled {
   }
 
   .expense-form {
+    grid-template-columns: 1fr;
+  }
+
+  .participant-option {
     grid-template-columns: 1fr;
   }
 

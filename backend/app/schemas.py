@@ -1,5 +1,6 @@
 from datetime import date as DateValue
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -58,6 +59,11 @@ class ParticipantResponse(BaseModel):
     name: str
 
 
+class ExpenseAllocationCreate(BaseModel):
+    participant_id: int
+    amount: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+
+
 class ExpenseCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -66,13 +72,21 @@ class ExpenseCreate(BaseModel):
     category: str = Field(min_length=1, max_length=100)
     date: DateValue | None = None
     payer_id: int
-    person_id: int
+    expense_type: Literal["personal", "equal", "custom"] = "personal"
+    person_id: int | None = None
+    participant_ids: list[int] | None = None
+    allocations: list[ExpenseAllocationCreate] | None = None
     description: str | None = Field(default=None, max_length=1000)
 
 
 class ExpenseAllocationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    participant_id: int
+    amount: Decimal
+
+
+class ExpenseDebtResponse(BaseModel):
     participant_id: int
     amount: Decimal
 
@@ -90,4 +104,8 @@ class ExpenseResponse(BaseModel):
     description: str | None
     expense_type: str
     allocations: list[ExpenseAllocationResponse]
+    debts: list[ExpenseDebtResponse] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
